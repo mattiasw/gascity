@@ -6,12 +6,14 @@
 package gastown_test
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gastownhall/gascity/internal/config"
@@ -51,6 +53,67 @@ func assertContainsInOrder(t *testing.T, body string, wants ...string) {
 		}
 		offset += idx + len(want)
 	}
+}
+
+func renderGastownPromptForBoundPack(t *testing.T, rel, agentName, templateName, rigName string) string {
+	t.Helper()
+	dir := exampleDir()
+	tmpl := template.New(filepath.Base(rel)).
+		Funcs(template.FuncMap{
+			"basename": func(qualifiedName string) string {
+				_, name := config.ParseQualifiedName(qualifiedName)
+				return name
+			},
+			"cmd": func() string {
+				return "gc"
+			},
+			"session": func(agentName string) string {
+				return agentName
+			},
+		}).
+		Option("missingkey=zero")
+
+	fragmentPaths, err := filepath.Glob(filepath.Join(dir, "packs", "gastown", "template-fragments", "*.template.md"))
+	if err != nil {
+		t.Fatalf("glob template fragments: %v", err)
+	}
+	for _, fragmentPath := range fragmentPaths {
+		data, err := os.ReadFile(fragmentPath)
+		if err != nil {
+			t.Fatalf("reading %s: %v", fragmentPath, err)
+		}
+		if _, err := tmpl.Parse(string(data)); err != nil {
+			t.Fatalf("parsing %s: %v", fragmentPath, err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, rel))
+	if err != nil {
+		t.Fatalf("reading %s: %v", rel, err)
+	}
+	if _, err := tmpl.Parse(string(data)); err != nil {
+		t.Fatalf("parsing %s: %v", rel, err)
+	}
+
+	ctx := map[string]string{
+		"AgentName":     agentName,
+		"BindingName":   "gastown",
+		"BindingPrefix": "gastown.",
+		"CityRoot":      "/city",
+		"DefaultBranch": "main",
+		"IssuePrefix":   "demo",
+		"RigName":       rigName,
+		"RigRoot":       "/repos/" + rigName,
+		"SlingQuery":    "bd ready --metadata-field gc.routed_to=<canonical> --unassigned",
+		"TemplateName":  templateName,
+		"WorkDir":       "/repos/" + rigName,
+		"WorkQuery":     "bd ready",
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, ctx); err != nil {
+		t.Fatalf("rendering %s: %v", rel, err)
+	}
+	return buf.String()
 }
 
 // loadExpanded loads city.toml with full pack expansion.
@@ -995,6 +1058,126 @@ func TestGastownRefineryPatrolRejectionCommandsReturnWorkToPolecatPool(t *testin
 	}
 }
 
+func TestGastownPromptPeerAddressesUseBindingPrefix(t *testing.T) {
+	checks := []struct {
+		rel          string
+		agentName    string
+		templateName string
+		rigName      string
+		wants        []string
+		bads         []string
+	}{
+		{
+			rel:          "packs/gastown/agents/mayor/prompt.template.md",
+			agentName:    "gastown.mayor",
+			templateName: "mayor",
+			wants: []string{
+				"gc sling <rig>/gastown.polecat <bead>",
+				"session nudge <rig>/gastown.refinery",
+			},
+			bads: []string{
+				"--label=pool:<rig>/polecat",
+				"gc nudge refinery",
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/deacon/prompt.template.md",
+			agentName:    "gastown.deacon",
+			templateName: "deacon",
+			wants: []string{
+				"gc mail send <rig>/gastown.witness",
+				"Your mail address: gastown.deacon",
+			},
+			bads: []string{
+				"gc mail send <rig>/witness",
+				"Your mail address: deacon/",
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/polecat/prompt.template.md",
+			agentName:    "demo/gastown.furiosa",
+			templateName: "polecat",
+			rigName:      "demo",
+			wants: []string{
+				"gastown.witness",
+			},
+			bads: []string{
+				"${GC_RIG:+$GC_RIG/}witness",
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/refinery/prompt.template.md",
+			agentName:    "demo/gastown.refinery",
+			templateName: "refinery",
+			rigName:      "demo",
+			wants: []string{
+				"gc session nudge demo/gastown.<polecat-suffix>",
+				"Mail identity: demo/gastown.refinery",
+				"Use the bare polecat suffix",
+			},
+			bads: []string{
+				"gc session nudge demo/<polecat-name>",
+				"Mail identity: demo/refinery",
+				"demo/gastown.<polecat-name>",
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/witness/prompt.template.md",
+			agentName:    "demo/gastown.witness",
+			templateName: "witness",
+			rigName:      "demo",
+			wants: []string{
+				"demo/gastown.refinery",
+				"demo/gastown.<polecat-suffix>",
+				"Your mail address: demo/gastown.witness",
+				"Use the bare polecat suffix",
+			},
+			bads: []string{
+				"gc mail send demo/refinery",
+				"gc session nudge demo/<polecat-name>",
+				"gc session peek demo/<polecat-name>",
+				"Your mail address: demo/witness",
+				"demo/gastown.<polecat-name>",
+			},
+		},
+		{
+			rel:          "packs/gastown/assets/prompts/crew.template.md",
+			agentName:    "demo/gastown.alice",
+			templateName: "crew",
+			rigName:      "demo",
+			wants: []string{
+				"demo/<binding>.<polecat-suffix>",
+				"gc sling <rig>/<binding>.polecat <bead>",
+				"e.g. `<rig>/gastown.witness`",
+				"Use the import binding plus the bare polecat suffix",
+			},
+			bads: []string{
+				"gc bd update --label=pool:<rig>/polecat",
+				"gc bd update <bead> --label=pool:<rig>/polecat",
+				"gc session nudge demo/<polecat-name>",
+				"`<rig>/<agent>` for rig agents",
+				"gc.routed_to=demo/polecat",
+				"gc session nudge demo/polecat",
+				"demo/<polecat-suffix>",
+				"demo/gastown.<polecat-name>",
+			},
+		},
+	}
+	for _, check := range checks {
+		body := renderGastownPromptForBoundPack(t, check.rel, check.agentName, check.templateName, check.rigName)
+		for _, want := range check.wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing %q", check.rel, want)
+			}
+		}
+		for _, bad := range check.bads {
+			if strings.Contains(body, bad) {
+				t.Errorf("%s still contains binding-blind peer address %q", check.rel, bad)
+			}
+		}
+	}
+}
+
 func TestGastownPatrolWispCommandsPropagateRoutingNamespace(t *testing.T) {
 	dir := exampleDir()
 	checks := []struct {
@@ -1018,14 +1201,14 @@ func TestGastownPatrolWispCommandsPropagateRoutingNamespace(t *testing.T) {
 			vars:    []string{"--var target_branch=", "--var rig_name=", "--var binding_prefix="},
 		},
 		{
-			rel:     "packs/gastown/formulas/mol-refinery-patrol.toml",
-			formula: "mol-refinery-patrol",
-			vars:    []string{"--var target_branch=", "--var rig_name=", "--var binding_prefix="},
-		},
-		{
 			rel:     "packs/gastown/agents/witness/prompt.template.md",
 			formula: "mol-witness-patrol",
 			vars:    []string{"--var binding_prefix="},
+		},
+		{
+			rel:     "packs/gastown/formulas/mol-refinery-patrol.toml",
+			formula: "mol-refinery-patrol",
+			vars:    []string{"--var target_branch=", "--var rig_name=", "--var binding_prefix="},
 		},
 		{
 			rel:     "packs/gastown/formulas/mol-witness-patrol.toml",
@@ -1068,6 +1251,26 @@ func TestGastownPatrolWispCommandsPropagateRoutingNamespace(t *testing.T) {
 		for _, bad := range []string{"{{binding_prefix}}", "{{rig_name}}"} {
 			if strings.Contains(rendered, bad) {
 				t.Errorf("%s rendered patrol formula still contains %q", rel, bad)
+			}
+		}
+		if rel == "packs/gastown/formulas/mol-witness-patrol.toml" {
+			for _, want := range []string{
+				"<rig>/gastown.<polecat-suffix>",
+				"--assignee=<rig>/gastown.refinery",
+				"gc session nudge <rig>/gastown.refinery",
+			} {
+				if !strings.Contains(rendered, want) {
+					t.Errorf("%s rendered witness patrol missing %q", rel, want)
+				}
+			}
+			for _, bad := range []string{
+				"<rig>/polecats/<name>",
+				"--assignee=<rig>/refinery",
+				"gc session nudge <rig>/refinery",
+			} {
+				if strings.Contains(rendered, bad) {
+					t.Errorf("%s rendered witness patrol still contains %q", rel, bad)
+				}
 			}
 		}
 	}

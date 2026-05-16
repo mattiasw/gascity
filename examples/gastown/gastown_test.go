@@ -55,7 +55,7 @@ func assertContainsInOrder(t *testing.T, body string, wants ...string) {
 	}
 }
 
-func renderGastownPromptForBoundPack(t *testing.T, rel, agentName, templateName, rigName string) string {
+func renderGastownPromptForPack(t *testing.T, rel, agentName, templateName, rigName, bindingName, bindingPrefix string) string {
 	t.Helper()
 	dir := exampleDir()
 	tmpl := template.New(filepath.Base(rel)).
@@ -97,8 +97,8 @@ func renderGastownPromptForBoundPack(t *testing.T, rel, agentName, templateName,
 
 	ctx := map[string]string{
 		"AgentName":     agentName,
-		"BindingName":   "gastown",
-		"BindingPrefix": "gastown.",
+		"BindingName":   bindingName,
+		"BindingPrefix": bindingPrefix,
 		"CityRoot":      "/city",
 		"DefaultBranch": "main",
 		"IssuePrefix":   "demo",
@@ -1064,9 +1064,48 @@ func TestGastownPromptPeerAddressesUseBindingPrefix(t *testing.T) {
 		agentName    string
 		templateName string
 		rigName      string
+		unbound      bool
 		wants        []string
 		bads         []string
 	}{
+		{
+			rel:          "packs/gastown/agents/boot/prompt.template.md",
+			agentName:    "gastown.boot",
+			templateName: "boot",
+			wants: []string{
+				"gc session peek gastown.deacon --lines 1",
+				"gc bd list --assignee=gastown.deacon --status=in_progress --json --limit=5",
+				"gc mail count gastown.deacon",
+				"gc session nudge gastown.deacon",
+				`--title="Stuck: gastown.deacon"`,
+				`"target":"gastown.deacon"`,
+			},
+			bads: []string{
+				"gc session peek deacon",
+				"--assignee=deacon",
+				"gc mail count deacon",
+				"gc session nudge deacon",
+				`--title="Stuck: deacon"`,
+				`"target":"deacon"`,
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/boot/prompt.template.md",
+			agentName:    "boot",
+			templateName: "boot",
+			unbound:      true,
+			wants: []string{
+				"gc session peek deacon --lines 1",
+				"gc bd list --assignee=deacon --status=in_progress --json --limit=5",
+				"gc mail count deacon",
+				"gc session nudge deacon",
+				`--title="Stuck: deacon"`,
+				`"target":"deacon"`,
+			},
+			bads: []string{
+				"gastown.deacon",
+			},
+		},
 		{
 			rel:          "packs/gastown/agents/mayor/prompt.template.md",
 			agentName:    "gastown.mayor",
@@ -1078,6 +1117,20 @@ func TestGastownPromptPeerAddressesUseBindingPrefix(t *testing.T) {
 			bads: []string{
 				"--label=pool:<rig>/polecat",
 				"gc nudge refinery",
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/mayor/prompt.template.md",
+			agentName:    "mayor",
+			templateName: "mayor",
+			unbound:      true,
+			wants: []string{
+				"gc sling <rig>/polecat <bead>",
+				"session nudge <rig>/refinery",
+			},
+			bads: []string{
+				"gc sling <rig>/gastown.polecat <bead>",
+				"session nudge <rig>/gastown.refinery",
 			},
 		},
 		{
@@ -1094,15 +1147,45 @@ func TestGastownPromptPeerAddressesUseBindingPrefix(t *testing.T) {
 			},
 		},
 		{
+			rel:          "packs/gastown/agents/deacon/prompt.template.md",
+			agentName:    "deacon",
+			templateName: "deacon",
+			unbound:      true,
+			wants: []string{
+				"gc mail send <rig>/witness",
+				"Your mail address: deacon",
+			},
+			bads: []string{
+				"gc mail send <rig>/gastown.witness",
+				"Your mail address: deacon/",
+			},
+		},
+		{
 			rel:          "packs/gastown/agents/polecat/prompt.template.md",
 			agentName:    "demo/gastown.furiosa",
 			templateName: "polecat",
 			rigName:      "demo",
 			wants: []string{
 				"gastown.witness",
+				"Mail identity: demo/gastown.furiosa",
 			},
 			bads: []string{
 				"${GC_RIG:+$GC_RIG/}witness",
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/polecat/prompt.template.md",
+			agentName:    "demo/furiosa",
+			templateName: "polecat",
+			rigName:      "demo",
+			unbound:      true,
+			wants: []string{
+				"${GC_RIG:+$GC_RIG/}witness",
+				"Mail identity: demo/furiosa",
+			},
+			bads: []string{
+				"${GC_RIG:+$GC_RIG/}gastown.witness",
+				"Mail identity: demo/gastown.furiosa",
 			},
 		},
 		{
@@ -1122,6 +1205,23 @@ func TestGastownPromptPeerAddressesUseBindingPrefix(t *testing.T) {
 			},
 		},
 		{
+			rel:          "packs/gastown/agents/refinery/prompt.template.md",
+			agentName:    "demo/refinery",
+			templateName: "refinery",
+			rigName:      "demo",
+			unbound:      true,
+			wants: []string{
+				"gc session nudge demo/<polecat-suffix>",
+				"Mail identity: demo/refinery",
+				"Use the bare polecat suffix",
+			},
+			bads: []string{
+				"gc session nudge demo/gastown.<polecat-suffix>",
+				"Mail identity: demo/gastown.refinery",
+				"demo/gastown.<polecat-name>",
+			},
+		},
+		{
 			rel:          "packs/gastown/agents/witness/prompt.template.md",
 			agentName:    "demo/gastown.witness",
 			templateName: "witness",
@@ -1137,6 +1237,26 @@ func TestGastownPromptPeerAddressesUseBindingPrefix(t *testing.T) {
 				"gc session nudge demo/<polecat-name>",
 				"gc session peek demo/<polecat-name>",
 				"Your mail address: demo/witness",
+				"demo/gastown.<polecat-name>",
+			},
+		},
+		{
+			rel:          "packs/gastown/agents/witness/prompt.template.md",
+			agentName:    "demo/witness",
+			templateName: "witness",
+			rigName:      "demo",
+			unbound:      true,
+			wants: []string{
+				"demo/refinery",
+				"demo/<polecat-suffix>",
+				"Your mail address: demo/witness",
+				"Use the bare polecat suffix",
+			},
+			bads: []string{
+				"gc mail send demo/gastown.refinery",
+				"gc session nudge demo/gastown.<polecat-suffix>",
+				"gc session peek demo/gastown.<polecat-suffix>",
+				"Your mail address: demo/gastown.witness",
 				"demo/gastown.<polecat-name>",
 			},
 		},
@@ -1162,9 +1282,37 @@ func TestGastownPromptPeerAddressesUseBindingPrefix(t *testing.T) {
 				"demo/gastown.<polecat-name>",
 			},
 		},
+		{
+			rel:          "packs/gastown/assets/prompts/crew.template.md",
+			agentName:    "demo/alice",
+			templateName: "crew",
+			rigName:      "demo",
+			unbound:      true,
+			wants: []string{
+				"demo/<binding>.<polecat-suffix>",
+				"gc sling <rig>/<binding>.polecat <bead>",
+				"Use the import binding plus the bare polecat suffix",
+			},
+			bads: []string{
+				"gc bd update --label=pool:<rig>/polecat",
+				"gc bd update <bead> --label=pool:<rig>/polecat",
+				"gc session nudge demo/<polecat-name>",
+				"`<rig>/<agent>` for rig agents",
+				"gc.routed_to=demo/polecat",
+				"gc session nudge demo/polecat",
+				"demo/<polecat-suffix>",
+				"demo/gastown.<polecat-name>",
+			},
+		},
 	}
 	for _, check := range checks {
-		body := renderGastownPromptForBoundPack(t, check.rel, check.agentName, check.templateName, check.rigName)
+		bindingName := "gastown"
+		bindingPrefix := "gastown."
+		if check.unbound {
+			bindingName = ""
+			bindingPrefix = ""
+		}
+		body := renderGastownPromptForPack(t, check.rel, check.agentName, check.templateName, check.rigName, bindingName, bindingPrefix)
 		for _, want := range check.wants {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s missing %q", check.rel, want)
@@ -1276,6 +1424,40 @@ func TestGastownPatrolWispCommandsPropagateRoutingNamespace(t *testing.T) {
 	}
 }
 
+func TestGastownFormulasUsingBindingPrefixDefaultToUnbound(t *testing.T) {
+	dir := exampleDir()
+	paths, err := filepath.Glob(filepath.Join(dir, "packs", "gastown", "formulas", "*.toml"))
+	if err != nil {
+		t.Fatalf("glob gastown formulas: %v", err)
+	}
+	parser := formula.NewParser()
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		if !strings.Contains(string(data), "{{binding_prefix}}") {
+			continue
+		}
+		f, err := parser.ParseFile(path)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		varDef, ok := f.Vars["binding_prefix"]
+		if !ok {
+			t.Errorf("%s uses {{binding_prefix}} without declaring [vars.binding_prefix]", filepath.Base(path))
+			continue
+		}
+		if varDef.Default == nil {
+			t.Errorf("%s binding_prefix var has no explicit default", filepath.Base(path))
+			continue
+		}
+		if *varDef.Default != "" {
+			t.Errorf("%s binding_prefix default = %q, want empty string", filepath.Base(path), *varDef.Default)
+		}
+	}
+}
+
 func TestBootPromptMatchesNamedSessionLifecycle(t *testing.T) {
 	cfg := loadExpanded(t)
 	bootSession := config.FindNamedSession(cfg, "boot")
@@ -1317,8 +1499,8 @@ func TestBootPromptMatchesNamedSessionLifecycle(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"{{ cmd }} session peek deacon --lines 1",
-		"{{ cmd }} session peek deacon --lines 30",
+		"{{ cmd }} session peek {{ .BindingPrefix }}deacon --lines 1",
+		"{{ cmd }} session peek {{ .BindingPrefix }}deacon --lines 30",
 		"configured `boot` named session",
 		"`mode = \"always\"` keeps the `boot` identity present",
 		"`wake_mode = \"fresh\"`",

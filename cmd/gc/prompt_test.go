@@ -424,250 +424,40 @@ Binding: {{ .BindingName }} {{ .BindingPrefix }}
 	}
 }
 
-func TestRenderPromptGastownBoundPeerAddresses(t *testing.T) {
-	cityRoot := filepath.Join("..", "..", "examples", "gastown")
-	packDir := filepath.Join(cityRoot, "packs", "gastown")
+func TestRenderPromptBindingPrefixReachesTemplate(t *testing.T) {
+	f := fsys.NewFake()
+	f.Files["/city/prompts/peer.template.md"] = []byte("peer={{ .RigName }}/{{ .BindingPrefix }}worker\nbinding={{ .BindingName }}\n")
 	cases := []struct {
-		name         string
-		templatePath string
-		ctx          PromptContext
-		wants        []string
-		bads         []string
+		name string
+		ctx  PromptContext
+		want string
 	}{
 		{
-			name:         "mayor",
-			templatePath: filepath.Join("packs", "gastown", "agents", "mayor", "prompt.template.md"),
+			name: "bound",
 			ctx: PromptContext{
-				AgentName:     "gastown.mayor",
-				TemplateName:  "mayor",
 				BindingName:   "gastown",
 				BindingPrefix: "gastown.",
-				CityRoot:      "/city",
-			},
-			wants: []string{
-				"gc sling <rig>/gastown.polecat <bead>",
-				"session nudge <rig>/gastown.refinery",
-			},
-			bads: []string{
-				"--label=pool:<rig>/polecat",
-				"nudge refinery",
-			},
-		},
-		{
-			name:         "mayor-unbound",
-			templatePath: filepath.Join("packs", "gastown", "agents", "mayor", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:    "mayor",
-				TemplateName: "mayor",
-				CityRoot:     "/city",
-			},
-			wants: []string{
-				"gc sling <rig>/polecat <bead>",
-				"session nudge <rig>/refinery",
-			},
-			bads: []string{
-				"gc sling <rig>/gastown.polecat <bead>",
-				"session nudge <rig>/gastown.refinery",
-			},
-		},
-		{
-			name:         "witness",
-			templatePath: filepath.Join("packs", "gastown", "agents", "witness", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:     "demo/gastown.witness",
-				TemplateName:  "witness",
-				BindingName:   "gastown",
-				BindingPrefix: "gastown.",
-				CityRoot:      "/city",
 				RigName:       "demo",
 			},
-			wants: []string{
-				"gc mail send demo/gastown.refinery",
-				"gc session nudge demo/gastown.<polecat-suffix>",
-				"not `gastown.furiosa`",
-				"Your mail address: demo/gastown.witness",
-			},
-			bads: []string{
-				"gc mail send demo/refinery",
-				"gc session nudge demo/<polecat-name>",
-				"Your mail address: demo/witness",
-			},
+			want: "peer=demo/gastown.worker\nbinding=gastown\n",
 		},
 		{
-			name:         "witness-unbound",
-			templatePath: filepath.Join("packs", "gastown", "agents", "witness", "prompt.template.md"),
+			name: "unbound",
 			ctx: PromptContext{
-				AgentName:    "demo/witness",
-				TemplateName: "witness",
-				CityRoot:     "/city",
-				RigName:      "demo",
+				RigName: "demo",
 			},
-			wants: []string{
-				"gc mail send demo/refinery",
-				"gc session nudge demo/<polecat-suffix>",
-				"Your mail address: demo/witness",
-			},
-			bads: []string{
-				"gc mail send demo/gastown.refinery",
-				"gc session nudge demo/gastown.<polecat-suffix>",
-				"Your mail address: demo/gastown.witness",
-				"not `furiosa`",
-			},
-		},
-		{
-			name:         "deacon",
-			templatePath: filepath.Join("packs", "gastown", "agents", "deacon", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:     "gastown.deacon",
-				TemplateName:  "deacon",
-				BindingName:   "gastown",
-				BindingPrefix: "gastown.",
-				CityRoot:      "/city",
-			},
-			wants: []string{
-				"gc mail send <rig>/gastown.witness",
-				"Your mail address: gastown.deacon",
-			},
-			bads: []string{
-				"gc mail send <rig>/witness",
-				"Your mail address: deacon/",
-			},
-		},
-		{
-			name:         "deacon-unbound",
-			templatePath: filepath.Join("packs", "gastown", "agents", "deacon", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:    "deacon",
-				TemplateName: "deacon",
-				CityRoot:     "/city",
-			},
-			wants: []string{
-				"gc mail send <rig>/witness",
-				"Your mail address: deacon",
-			},
-			bads: []string{
-				"gc mail send <rig>/gastown.witness",
-				"Your mail address: deacon/",
-				"Your mail address: gastown.deacon",
-			},
-		},
-		{
-			name:         "polecat",
-			templatePath: filepath.Join("packs", "gastown", "agents", "polecat", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:     "demo/gastown.furiosa",
-				TemplateName:  "polecat",
-				BindingName:   "gastown",
-				BindingPrefix: "gastown.",
-				CityRoot:      "/city",
-				RigName:       "demo",
-			},
-			wants: []string{
-				"${GC_RIG:+$GC_RIG/}gastown.witness",
-				"gc session nudge \"$WITNESS_TARGET\"",
-			},
-			bads: []string{
-				"${GC_RIG:+$GC_RIG/}witness",
-				"gc session nudge demo/witness",
-			},
-		},
-		{
-			name:         "polecat-unbound",
-			templatePath: filepath.Join("packs", "gastown", "agents", "polecat", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:    "demo/furiosa",
-				TemplateName: "polecat",
-				CityRoot:     "/city",
-				RigName:      "demo",
-			},
-			wants: []string{
-				"${GC_RIG:+$GC_RIG/}witness",
-				"gc session nudge \"$WITNESS_TARGET\"",
-			},
-			bads: []string{
-				"${GC_RIG:+$GC_RIG/}gastown.witness",
-			},
-		},
-		{
-			name:         "refinery",
-			templatePath: filepath.Join("packs", "gastown", "agents", "refinery", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:     "demo/gastown.refinery",
-				TemplateName:  "refinery",
-				BindingName:   "gastown",
-				BindingPrefix: "gastown.",
-				CityRoot:      "/city",
-				RigName:       "demo",
-			},
-			wants: []string{
-				"gc session nudge demo/gastown.<polecat-suffix>",
-				"Mail identity: demo/gastown.refinery",
-				"not `gastown.furiosa`",
-			},
-			bads: []string{
-				"gc session nudge demo/<polecat-suffix>",
-				"Mail identity: demo/refinery",
-			},
-		},
-		{
-			name:         "refinery-unbound",
-			templatePath: filepath.Join("packs", "gastown", "agents", "refinery", "prompt.template.md"),
-			ctx: PromptContext{
-				AgentName:    "demo/refinery",
-				TemplateName: "refinery",
-				CityRoot:     "/city",
-				RigName:      "demo",
-			},
-			wants: []string{
-				"gc session nudge demo/<polecat-suffix>",
-				"Mail identity: demo/refinery",
-			},
-			bads: []string{
-				"gc session nudge demo/gastown.<polecat-suffix>",
-				"Mail identity: demo/gastown.refinery",
-				"not `furiosa`",
-			},
-		},
-		{
-			name:         "crew",
-			templatePath: filepath.Join("packs", "gastown", "assets", "prompts", "crew.template.md"),
-			ctx: PromptContext{
-				AgentName:     "demo/gastown.alice",
-				TemplateName:  "crew",
-				BindingName:   "gastown",
-				BindingPrefix: "gastown.",
-				CityRoot:      "/city",
-				RigName:       "demo",
-			},
-			wants: []string{
-				"gc sling <rig>/<binding>.polecat <bead>",
-				"gc session nudge demo/<binding>.<polecat-suffix>",
-				"e.g. `<rig>/gastown.witness`",
-			},
-			bads: []string{
-				"gc bd update <bead> --label=pool:<rig>/polecat",
-				"gc session nudge demo/<polecat-name>",
-				"`<rig>/<agent>` for rig agents",
-				"gc session nudge demo/<polecat-suffix>",
-			},
+			want: "peer=demo/worker\nbinding=\n",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var stderr strings.Builder
-			got := renderPrompt(fsys.OSFS{}, cityRoot, "gastown", tc.templatePath, tc.ctx, "", &stderr, []string{packDir}, nil, nil)
+			got := renderPrompt(f, "/city", "", "prompts/peer.template.md", tc.ctx, "", &stderr, nil, nil, nil)
 			if stderr.Len() > 0 {
 				t.Fatalf("renderPrompt stderr: %s", stderr.String())
 			}
-			for _, want := range tc.wants {
-				if !strings.Contains(got, want) {
-					t.Errorf("rendered prompt missing %q", want)
-				}
-			}
-			for _, bad := range tc.bads {
-				if strings.Contains(got, bad) {
-					t.Errorf("rendered prompt still contains %q", bad)
-				}
+			if got != tc.want {
+				t.Errorf("renderPrompt() = %q, want %q", got, tc.want)
 			}
 		})
 	}

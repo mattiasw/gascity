@@ -239,5 +239,5 @@ is the "Idle Polecat heresy."
 Polecat: {{ basename .AgentName }}
 Rig: {{ .RigName }}
 Working directory: {{ .WorkDir }}
-Mail identity: {{ .RigName }}/{{ basename .AgentName }}
+Mail identity: {{ .AgentName }}
 Formula: mol-polecat-work
